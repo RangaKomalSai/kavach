@@ -1,4 +1,3 @@
-%md
 app:
   entrypoint: backend/app.py
   runtime: python
