@@ -41,41 +41,54 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.className = 'rag-card';
             
-            const tagsHtml = res.tags.map(t => `<span style="background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:12px; font-size:0.75rem; margin-right:5px; margin-bottom:5px; display:inline-block;">#${t}</span>`).join('');
-            
+            // The backend returns city, amount_lost, similarity, narrative, complaint_id
             card.innerHTML = `
                 <div class="rag-card-header">
-                    <span style="color:var(--text-muted); font-family:monospace;">${res.id}</span>
-                    <span class="score-badge">Similarity: ${res.score}</span>
+                    <span style="color:var(--text-muted); font-family:monospace;">${res.complaint_id}</span>
+                    <span class="score-badge">Similarity: ${res.similarity.toFixed(3)}</span>
                 </div>
                 <div class="rag-narrative">
                     "${res.narrative}"
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                    <div style="color:var(--accent-red); font-weight:700;">Loss: ₹${res.amount.toLocaleString()}</div>
-                    <div style="max-width:60%; text-align:right;">${tagsHtml}</div>
+                    <div style="color:var(--accent-red); font-weight:700;">Loss: ₹${res.amount_lost.toLocaleString()}</div>
+                    <div style="max-width:60%; text-align:right;"><span style="color:var(--text-muted); font-size:0.85rem;">📍 ${res.city}</span></div>
                 </div>
             `;
             resultsContainer.appendChild(card);
         });
     }
 
-    function handleSearch() {
+    async function handleSearch() {
         const query = searchInput.value.trim();
         if (!query) return;
 
         // Show loading state
-        resultsContainer.innerHTML = `<div class="placeholder-text">Searching Vector Database... <br><small class="text-muted">(Using Databricks Vector Search endpoint)</small></div>`;
+        resultsContainer.innerHTML = `<div class="placeholder-text">Searching Vector Database... <br><small class="text-muted">(Using actual FAISS backend)</small></div>`;
 
         searchBtn.disabled = true;
         searchBtn.textContent = 'Searching...';
 
-        // Simulate network delay for DB vector search
-        setTimeout(() => {
-            renderResults(MOCK_RESULTS);
+        try {
+            const res = await fetch('http://localhost:5000/api/rag/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                renderResults(data.results || []);
+            } else {
+                resultsContainer.innerHTML = `<div class="placeholder-text text-muted" style="color:var(--accent-red) !important;">Error connecting to backend vector store.</div>`;
+            }
+        } catch (e) {
+            console.error(e);
+            resultsContainer.innerHTML = `<div class="placeholder-text text-muted" style="color:var(--accent-red) !important;">Backend is offline. Ensure app.py is running.</div>`;
+        } finally {
             searchBtn.disabled = false;
             searchBtn.textContent = 'Search DB';
-        }, 1200);
+        }
     }
 
     searchBtn.addEventListener('click', handleSearch);

@@ -73,74 +73,95 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- MOCK API POLLING ---
-    // Instead of actual fetch, we simulate incoming streams.
-    
-    const names = ['rahul', 'priya', 'amit', 'neha', 'vikram', 'anita'];
-    function randUpi() { return names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random()*99) + '@ybl'; }
-    
-    function fetchLiveTransactions() {
-        // Simulate normal transactions ticking in
-        const count = Math.floor(Math.random() * 3) + 1; // 1 to 3 per poll
-        for (let i=0; i<count; i++) {
-            const txn = {
-                timestamp: Date.now() - Math.random() * 1000,
-                sender: randUpi(),
-                receiver: randUpi(),
-                amount: Math.floor(Math.random() * 5000) + 100,
-                flagged: false
-            };
-            addTransactionToFeed(txn);
+    // --- FULL STACK API POLLING ---
+    let lastSeenTxnIds = new Set();
+    let lastSeenAlertIds = new Set();
+    const API_BASE = 'http://localhost:5000/api';
+
+    async function fetchLiveTransactions() {
+        try {
+            const res = await fetch(`${API_BASE}/transactions`);
+            if (!res.ok) return;
+            const txns = await res.json();
             
-            // Dispatch event for D3 graph to consume
-            window.dispatchEvent(new CustomEvent('kavach:new_txn', { detail: txn }));
+            // Filter new ones
+            const newTxns = txns.filter(t => !lastSeenTxnIds.has(t.txn_id));
+            if (newTxns.length === 0) return;
+            
+            newTxns.forEach(txn => {
+                lastSeenTxnIds.add(txn.txn_id);
+                // Keep set size manageable
+                if (lastSeenTxnIds.size > 1000) {
+                    const iterator = lastSeenTxnIds.values();
+                    lastSeenTxnIds.delete(iterator.next().value);
+                }
+                
+                // Add to UI
+                addTransactionToFeed({
+                    timestamp: txn.timestamp,
+                    sender: txn.sender,
+                    receiver: txn.receiver,
+                    amount: txn.amount,
+                    flagged: txn.is_flagged,
+                    is_scam: txn.is_flagged
+                });
+                
+                // Dispatch for D3 graph
+                window.dispatchEvent(new CustomEvent('kavach:new_txn', { detail: txn }));
+            });
+        } catch (e) {
+            console.error("Backend offline or error fetching txns:", e);
+        }
+    }
+
+    async function fetchAlerts() {
+        try {
+            const res = await fetch(`${API_BASE}/alerts`);
+            if (!res.ok) return;
+            const alerts = await res.json();
+            
+            // Start from end to prepend in order, or just filter new
+            const newAlerts = alerts.filter(a => !lastSeenAlertIds.has(a.alert_id));
+            newAlerts.forEach(a => {
+                lastSeenAlertIds.add(a.alert_id);
+                addAlertToFeed(a.pattern_description);
+            });
+        } catch (e) {
+            console.error("Error fetching alerts:", e);
         }
     }
 
     // Poll every 2 seconds
-    setInterval(fetchLiveTransactions, 2000);
+    setInterval(() => {
+        fetchLiveTransactions();
+        fetchAlerts();
+    }, 2000);
 
-    // Provide some immediate data
-    setTimeout(fetchLiveTransactions, 500);
+    // Initial fetch
+    fetchLiveTransactions();
+    fetchAlerts();
 
     // --- SIMULATE SCAM BUTTON ---
-    simulateBtn.addEventListener('click', () => {
+    simulateBtn.addEventListener('click', async () => {
         simulateBtn.disabled = true;
         simulateBtn.textContent = 'Simulating...';
         simulateBtn.classList.remove('btn-outline');
         simulateBtn.classList.add('btn-primary');
         
-        const victim = `victim_${Math.floor(Math.random()*99)}@sbi`;
-        const mules = [randUpi(), randUpi(), randUpi()];
-        const amounts = [100000, 50000, 200000];
-        
-        let step = 0;
-        const interval = setInterval(() => {
-            if (step >= mules.length) {
-                clearInterval(interval);
+        try {
+            const res = await fetch(`${API_BASE}/simulate-scam`, { method: 'POST' });
+            if (res.ok) {
+                console.log("Scam triggered successfully.");
+            }
+        } catch (e) {
+            console.error("Error triggering scam:", e);
+        } finally {
+            setTimeout(() => {
                 simulateBtn.disabled = false;
                 simulateBtn.textContent = 'Simulate Scam';
                 simulateBtn.classList.add('btn-outline');
                 simulateBtn.classList.remove('btn-primary');
-                
-                // Trigger alert
-                addAlertToFeed(`Model FL_XGB_94 flagged 3 rapid high-value transfers (Total: ₹3,50,000) from ${victim} to newly active accounts. Confidence: 96.8%.`);
-                return;
-            }
-            
-            const txn = {
-                timestamp: Date.now(),
-                sender: victim,
-                receiver: mules[step],
-                amount: amounts[step],
-                flagged: true,
-                is_scam: true
-            };
-            
-            addTransactionToFeed(txn);
-            window.dispatchEvent(new CustomEvent('kavach:new_txn', { detail: txn }));
-            step++;
-            
-        }, 800); // Send one flagged txn every 0.8s for visual effect
+            }, 3000); // 3 sec cooldown to let txns flow in
+        }
     });
 });
