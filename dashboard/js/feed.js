@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- FULL STACK API POLLING ---
     let lastSeenTxnIds = new Set();
     let lastSeenAlertIds = new Set();
-    const API_BASE = 'http://localhost:5000/api';
+    const API_BASE = 'http://localhost:8080/api';
 
     async function fetchLiveTransactions() {
         try {

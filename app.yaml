@@ -1,5 +1,5 @@
-app:
-  entrypoint: backend/app.py
+entrypoint: backend/app.py
   runtime: python
   requirements: backend/requirements.txt
   static_dir: dashboard
+  command: ["python", "backend/app.py"]
