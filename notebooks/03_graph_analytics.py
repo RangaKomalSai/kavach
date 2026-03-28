@@ -1,26 +1,22 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ## KAVACH — Graph Analytics (GraphFrames)
-# MAGIC 
+# MAGIC ## KAVACH — Graph Analytics (Pure PySpark)
+# MAGIC
 # MAGIC This notebook builds a **transaction network graph** from silver-layer UPI transactions
 # MAGIC and computes structural features used for mule account detection:
-# MAGIC 
+# MAGIC
 # MAGIC - **In-degree / Out-degree**: How many unique senders/receivers each account has
 # MAGIC - **PageRank**: Identifies accounts that receive money from many distinct sources (mule hubs)
-# MAGIC - **Community Detection**: Label Propagation finds clusters of tightly-connected accounts (scam rings)
+# MAGIC - **Community Detection**: Connected components finds clusters of tightly-connected accounts (scam rings)
 # MAGIC - **Triangle Count**: Measures local clustering — mule networks form dense triangles
-# MAGIC 
+# MAGIC
+# MAGIC **Implementation**: Pure PySpark (serverless-compatible, no GraphFrames dependency)
+# MAGIC
 # MAGIC **Output**: `gold_graph_features` and `gold_final_features` (ML-ready table joining account + graph features)
 
 # COMMAND ----------
-# DBTITLE 1,Install GraphFrames
 
-# MAGIC %pip install graphframes
-# MAGIC dbutils.library.restartPython()
-
-# COMMAND ----------
 # DBTITLE 1,Configuration & Setup
-
 dbutils.widgets.text("catalog", "kavach", "Catalog Name")
 dbutils.widgets.text("schema", "digital_arrest", "Schema Name")
 
@@ -33,9 +29,8 @@ spark.sql(f"USE SCHEMA {schema}")
 print(f"Target: {catalog}.{schema}")
 
 # COMMAND ----------
-# DBTITLE 1,Build Transaction Graph
 
-from graphframes import GraphFrame
+# DBTITLE 1,Build Transaction Graph
 from pyspark.sql import functions as F
 
 # Read silver transactions
@@ -58,21 +53,25 @@ edges = (
     )
 )
 
-# Build GraphFrame
-g = GraphFrame(vertices, edges)
-
 v_count = vertices.count()
 e_count = edges.count()
 print(f"Graph built: {v_count:,} vertices, {e_count:,} edges")
+print("Using pure PySpark (serverless-compatible)")
 
 # COMMAND ----------
+
 # DBTITLE 1,In-Degree & Out-Degree
+# In-degree: count unique senders TO each receiver
+in_deg = (
+    edges.groupBy(F.col("dst").alias("id"))
+    .agg(F.count("*").alias("inDegree"))
+)
 
-# In-degree: how many unique sources send money TO this account
-in_deg = g.inDegrees  # columns: id, inDegree
-
-# Out-degree: how many unique destinations this account sends money TO
-out_deg = g.outDegrees  # columns: id, outDegree
+# Out-degree: count unique receivers FROM each sender
+out_deg = (
+    edges.groupBy(F.col("src").alias("id"))
+    .agg(F.count("*").alias("outDegree"))
+)
 
 print(f"Accounts with inbound edges:  {in_deg.count():,}")
 print(f"Accounts with outbound edges: {out_deg.count():,}")
@@ -80,36 +79,97 @@ print(f"Accounts with outbound edges: {out_deg.count():,}")
 display(in_deg.orderBy(F.desc("inDegree")).limit(5))
 
 # COMMAND ----------
+
 # DBTITLE 1,PageRank
+# Simplified PageRank using iterative joins (10 iterations)
+# Formula: PR(node) = (1-d) + d * sum(PR(neighbor)/outDegree(neighbor))
 
-# PageRank identifies accounts that receive money from many well-connected sources
-# Mule accounts and hub accounts tend to have high PageRank
-pr = g.pageRank(resetProbability=0.15, maxIter=10)
+damping = 0.85
+max_iter = 10
 
-pagerank_df = pr.vertices.select(
-    F.col("id"),
-    F.col("pagerank"),
-)
+# Initialize: all nodes start with rank = 1.0
+pagerank_df = vertices.withColumn("pagerank", F.lit(1.0))
 
-print("PageRank computed.")
+for i in range(max_iter):
+    # Compute contribution each node sends to its neighbors
+    contributions = (
+        edges.alias("e")
+        .join(pagerank_df.alias("pr"), F.col("e.src") == F.col("pr.id"))
+        .join(out_deg.alias("od"), F.col("e.src") == F.col("od.id"))
+        .select(
+            F.col("e.dst").alias("id"),
+            (F.col("pr.pagerank") / F.col("od.outDegree")).alias("contribution")
+        )
+    )
+    
+    # Sum contributions and apply damping
+    new_ranks = (
+        contributions.groupBy("id")
+        .agg(F.sum("contribution").alias("sum_contrib"))
+        .withColumn("pagerank", F.lit(1 - damping) + damping * F.col("sum_contrib"))
+        .select("id", "pagerank")
+    )
+    
+    # Merge back to all vertices (nodes with no inbound edges keep rank = 1-d)
+    pagerank_df = (
+        vertices
+        .join(new_ranks, on="id", how="left")
+        .withColumn("pagerank", F.coalesce(F.col("pagerank"), F.lit(1 - damping)))
+        .select("id", "pagerank")
+    )
+
+print(f"PageRank computed ({max_iter} iterations).")
 display(pagerank_df.orderBy(F.desc("pagerank")).limit(5))
 
 # COMMAND ----------
-# DBTITLE 1,Community Detection (Label Propagation)
 
-# Label Propagation finds clusters of tightly-connected accounts
-# Scam rings (victim → multiple mules) will cluster into small communities
-communities = g.labelPropagation(maxIter=5)
+# DBTITLE 1,Community Detection (Label Propagation)
+# Connected Components: finds clusters of mutually reachable accounts
+# More efficient than Label Propagation for serverless
+
+# Create bidirectional edges for undirected graph
+edges_undirected = (
+    edges.select(F.col("src").alias("node1"), F.col("dst").alias("node2"))
+    .union(
+        edges.select(F.col("dst").alias("node1"), F.col("src").alias("node2"))
+    )
+).distinct()
+
+# Initialize: each node is its own component
+components = vertices.withColumn("label", F.col("id"))
+
+# Iteratively propagate minimum label (simplified connected components)
+max_iter = 10
+for i in range(max_iter):
+    # Each node adopts the minimum label of its neighbors
+    neighbor_labels = (
+        edges_undirected.alias("e")
+        .join(components.alias("c"), F.col("e.node2") == F.col("c.id"))
+        .groupBy(F.col("e.node1").alias("id"))
+        .agg(F.min("c.label").alias("min_neighbor_label"))
+    )
+    
+    components = (
+        components.alias("comp")
+        .join(neighbor_labels.alias("nl"), on="id", how="left")
+        .withColumn(
+            "label",
+            F.least(
+                F.col("comp.label"),
+                F.coalesce(F.col("nl.min_neighbor_label"), F.col("comp.label"))
+            )
+        )
+        .select("id", "label")
+    )
 
 # Compute community sizes
 community_sizes = (
-    communities.groupBy("label")
+    components.groupBy("label")
     .agg(F.count("*").alias("community_size"))
 )
 
-# Join community size back to each vertex
 community_df = (
-    communities.select("id", "label")
+    components
     .join(community_sizes, on="label", how="left")
     .select(
         F.col("id"),
@@ -128,23 +188,47 @@ display(
 )
 
 # COMMAND ----------
+
 # DBTITLE 1,Triangle Count
+# Triangle count: A-B, B-C, C-A patterns
+# Using self-joins to find cycles of length 3
 
-# Triangle count measures local clustering density
-# Mule networks form dense triangles (victim→mule1, victim→mule2, mule1→mule2)
-tri = g.triangleCount()
+# Find triangles: src→dst→third→src
+triangles = (
+    edges.alias("e1")
+    .join(
+        edges.alias("e2"),
+        F.col("e1.dst") == F.col("e2.src")
+    )
+    .join(
+        edges.alias("e3"),
+        (F.col("e2.dst") == F.col("e3.src")) & (F.col("e3.dst") == F.col("e1.src"))
+    )
+    .select(
+        F.least(F.col("e1.src"), F.col("e1.dst"), F.col("e2.dst")).alias("v1"),
+        F.greatest(F.col("e1.src"), F.col("e1.dst"), F.col("e2.dst")).alias("v3"),
+    )
+    .distinct()
+)
 
-triangle_df = tri.select(
-    F.col("id"),
-    F.col("count").alias("triangle_count"),
+# Count triangles per vertex
+# Each triangle appears 3 times (once per vertex), so count all occurrences
+triangle_counts_v1 = triangles.groupBy(F.col("v1").alias("id")).agg(F.count("*").alias("count"))
+triangle_counts_v3 = triangles.groupBy(F.col("v3").alias("id")).agg(F.count("*").alias("count"))
+
+triangle_df = (
+    triangle_counts_v1
+    .union(triangle_counts_v3)
+    .groupBy("id")
+    .agg(F.sum("count").alias("triangle_count"))
 )
 
 print("Triangle count computed.")
 display(triangle_df.orderBy(F.desc("triangle_count")).limit(5))
 
 # COMMAND ----------
-# DBTITLE 1,Combine All Graph Features → gold_graph_features
 
+# DBTITLE 1,Combine All Graph Features → gold_graph_features
 # Start from all vertices and left-join each feature set
 graph_features = (
     vertices
@@ -177,8 +261,8 @@ row_count = spark.table(f"{catalog}.{schema}.gold_graph_features").count()
 print(f"gold_graph_features saved: {row_count:,} rows")
 
 # COMMAND ----------
-# DBTITLE 1,Create ML-Ready Table → gold_final_features
 
+# DBTITLE 1,Create ML-Ready Table → gold_final_features
 # Join account-level features with graph features to create the final ML input table
 account_features = spark.table(f"{catalog}.{schema}.gold_account_features")
 graph_features_table = spark.table(f"{catalog}.{schema}.gold_graph_features")
@@ -205,8 +289,8 @@ print(f"Feature columns: {len(final_features.columns)}")
 print(f"Columns: {final_features.columns}")
 
 # COMMAND ----------
-# DBTITLE 1,Analysis: Insights for Judges
 
+# DBTITLE 1,Analysis: Insights for Judges
 from pyspark.sql import functions as F
 
 final = spark.table(f"{catalog}.{schema}.gold_final_features")
