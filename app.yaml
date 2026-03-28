@@ -1,0 +1,6 @@
+%md
+app:
+  entrypoint: backend/app.py
+  runtime: python
+  requirements: backend/requirements.txt
+  static_dir: dashboard
