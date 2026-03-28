@@ -3,10 +3,10 @@
 # MAGIC ## KAVACH — Data Ingestion Pipeline (Bronze Layer)
 # MAGIC 
 # MAGIC This notebook ingests UPI **transactions**, **accounts**, **calls**, and **complaints** 
-# MAGIC from CSV files in a Unity Catalog Volume using **Auto Loader** for incremental processing.
+# MAGIC from JSON files in a Unity Catalog Volume using **Auto Loader** for incremental processing.
 # MAGIC 
 # MAGIC **Architecture:**
-# MAGIC - **Source**: CSV files in `/Volumes/{catalog}/{schema}/data/`
+# MAGIC - **Source**: JSON files in `/Volumes/{catalog}/{schema}/data/`
 # MAGIC - **Transactions table**: ~100,000 UPI transactions with scam episode labels
 # MAGIC - **Accounts table**: ~10,000 user/merchant accounts with mule account flags
 # MAGIC - **Calls table**: ~10,000 phone/video calls linked to scam episodes
@@ -45,11 +45,11 @@ from pyspark.sql.types import *
 # --- Transactions Ingestion ---
 txn_stream = (
     spark.readStream.format("cloudFiles")
-    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.format", "json")
+    .option("multiLine", "true")
     .option("cloudFiles.inferColumnTypes", "true")
-    .option("header", "true")
     .option("cloudFiles.schemaLocation", f"{checkpoint_base}/transactions/schema")
-    .option("pathGlobFilter", "*transactions*.csv")
+    .option("pathGlobFilter", "*transactions*.json")
     .load(source_path)
 )
 
@@ -92,11 +92,11 @@ from pyspark.sql import functions as F
 # --- Accounts Ingestion ---
 acct_stream = (
     spark.readStream.format("cloudFiles")
-    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.format", "json")
+    .option("multiLine", "true")
     .option("cloudFiles.inferColumnTypes", "true")
-    .option("header", "true")
     .option("cloudFiles.schemaLocation", f"{checkpoint_base}/accounts/schema")
-    .option("pathGlobFilter", "*accounts*.csv")
+    .option("pathGlobFilter", "*accounts*.json")
     .load(source_path)
 )
 
@@ -132,11 +132,11 @@ from pyspark.sql import functions as F
 # --- Calls Ingestion ---
 calls_stream = (
     spark.readStream.format("cloudFiles")
-    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.format", "json")
+    .option("multiLine", "true")
     .option("cloudFiles.inferColumnTypes", "true")
-    .option("header", "true")
     .option("cloudFiles.schemaLocation", f"{checkpoint_base}/calls/schema")
-    .option("pathGlobFilter", "*calls*.csv")
+    .option("pathGlobFilter", "*calls*.json")
     .load(source_path)
 )
 
@@ -170,16 +170,13 @@ print(f"Calls ingested into {catalog}.{schema}.calls")
 from pyspark.sql import functions as F
 
 # --- Complaints Ingestion ---
-# Complaints CSV has a 'narrative' column with commas inside; handle with multiLine + escape
 complaints_stream = (
     spark.readStream.format("cloudFiles")
-    .option("cloudFiles.format", "csv")
-    .option("cloudFiles.inferColumnTypes", "true")
-    .option("header", "true")
+    .option("cloudFiles.format", "json")
     .option("multiLine", "true")
-    .option("escape", '"')
+    .option("cloudFiles.inferColumnTypes", "true")
     .option("cloudFiles.schemaLocation", f"{checkpoint_base}/complaints/schema")
-    .option("pathGlobFilter", "*complaints*.csv")
+    .option("pathGlobFilter", "*complaints*.json")
     .load(source_path)
 )
 
@@ -259,7 +256,7 @@ for tbl in ["transactions", "accounts", "calls", "complaints"]:
 # ── Table-level comments ──
 spark.sql(f"""
   COMMENT ON TABLE {catalog}.{schema}.transactions IS
-  'UPI transactions for digital arrest scam detection. Contains ~100K rows with scam episode labels. Each row is one UPI payment (P2P, P2M, collect, or autopay). Primary key: txn_id. Ingested incrementally via Auto Loader from CSV files.'
+  'UPI transactions for digital arrest scam detection. Contains ~100K rows with scam episode labels. Each row is one UPI payment (P2P, P2M, collect, or autopay). Primary key: txn_id. Ingested incrementally via Auto Loader from JSON files.'
 """)
 
 spark.sql(f"""
@@ -293,7 +290,7 @@ txn_column_comments = {
     "is_first_txn_for_receiver":  "1 if this is the first transaction ever received by this receiver UPI ID in the scam episode, 0 otherwise.",
     "is_scam_episode":            "Binary label. 1 = transaction is part of a digital arrest scam episode, 0 = legitimate transaction.",
     "scam_episode_id":            "Identifier linking transactions to the same scam episode (e.g. EP0042). Empty string for legitimate transactions.",
-    "source_file":                "Auto Loader metadata: full path of the source CSV file this record was ingested from.",
+    "source_file":                "Auto Loader metadata: full path of the source JSON file this record was ingested from.",
 }
 
 for col, comment in txn_column_comments.items():
@@ -309,7 +306,7 @@ acct_column_comments = {
     "is_dormant":                 "True if the account was inactive for an extended period. 30% of mule accounts are reactivated dormant accounts.",
     "days_since_last_activity":   "Number of days since the last transaction on this account. Mule accounts typically show 0-5 days (new) or 90-400 days (reactivated).",
     "is_mule":                    "True if this account is flagged as a mule/money laundering intermediary. ~3% of all accounts.",
-    "source_file":                "Auto Loader metadata: full path of the source CSV file this record was ingested from.",
+    "source_file":                "Auto Loader metadata: full path of the source JSON file this record was ingested from.",
 }
 
 for col, comment in acct_column_comments.items():
@@ -325,7 +322,7 @@ calls_column_comments = {
     "duration_seconds":    "Duration of the call in seconds. Scam-linked calls are 1800-7200 seconds (30-120 minutes). Normal calls are 30-300 seconds.",
     "call_type":           "Type of call. Values: voice, video, whatsapp_video.",
     "is_international":    "True if the call originated from an international number. ~15% of scam calls are international.",
-    "source_file":         "Auto Loader metadata: full path of the source CSV file this record was ingested from.",
+    "source_file":         "Auto Loader metadata: full path of the source JSON file this record was ingested from.",
 }
 
 for col, comment in calls_column_comments.items():
@@ -344,7 +341,7 @@ comp_column_comments = {
     "victim_age":         "Age of the victim at time of filing.",
     "modus_operandi":     "Machine-readable tag for the fraud method. Values: digital_arrest, fake_kyc_update, qr_code_scam, lottery_scam, olx_marketplace_fraud, fake_refund, investment_scam, loan_fraud, job_scam, impersonation_scam.",
     "status":             "Complaint processing status. Values: registered, under_investigation, resolved, escalated, closed.",
-    "source_file":        "Auto Loader metadata: full path of the source CSV file this record was ingested from.",
+    "source_file":        "Auto Loader metadata: full path of the source JSON file this record was ingested from.",
 }
 
 for col, comment in comp_column_comments.items():
