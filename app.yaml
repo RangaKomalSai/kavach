@@ -1,5 +1,8 @@
-entrypoint: backend/app.py
-  runtime: python
-  requirements: backend/requirements.txt
-  static_dir: dashboard
-  command: ["python", "backend/app.py"]
+command:
+  - python
+  - backend/app.py
+env:
+  - name: KAVACH_MODE
+    value: DEMO
+dependencies:
+  - requirements: requirements.txt

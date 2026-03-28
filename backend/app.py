@@ -22,10 +22,12 @@ except ImportError:
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-app = Flask(__name__)
-CORS(app)  # Allow frontend to call across ports
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Configure Flask to serve static files from dashboard directory
+DASHBOARD_DIR = os.path.join(BASE_DIR, "dashboard")
+app = Flask(__name__, static_folder=DASHBOARD_DIR, static_url_path='')
+CORS(app)  # Allow frontend to call across ports
 DATA_DIR = os.path.join(BASE_DIR, "data")
 FEED_FILE = os.path.join(DATA_DIR, "live_feed.json")
 ALERTS_FILE = os.path.join(DATA_DIR, "alerts.json")
@@ -289,8 +291,23 @@ def get_metrics():
     })
 
 
+@app.route("/")
+def serve_dashboard():
+    """Serve the main dashboard HTML."""
+    return app.send_static_file("index.html")
+
+@app.route("/<path:path>")
+def serve_static(path):
+    """Serve static files (CSS, JS, assets)."""
+    return app.send_static_file(path)
+
+
 if __name__ == "__main__":
     ensure_json_file(FEED_FILE)
     ensure_json_file(ALERTS_FILE)
-    print("Starting KAVACH Backend in DEMO Mode...")
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    
+    # Use DATABRICKS_APP_PORT if available, otherwise default to 8080
+    port = int(os.environ.get("DATABRICKS_APP_PORT", "8080"))
+    
+    print(f"Starting KAVACH Backend on port {port} in {MODE} Mode...")
+    app.run(host="0.0.0.0", port=port, debug=False)

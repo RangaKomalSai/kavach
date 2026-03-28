@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchBtn.textContent = 'Searching...';
 
         try {
-            const res = await fetch('http://localhost:5000/api/rag/search', {
+            const res = await fetch('/api/rag/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query })
