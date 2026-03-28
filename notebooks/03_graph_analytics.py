@@ -111,12 +111,13 @@ for i in range(max_iter):
     )
     
     # Merge back to all vertices (nodes with no inbound edges keep rank = 1-d)
+    # Using localCheckpoint() to break lineage and prevent StackOverflow in free tier
     pagerank_df = (
         vertices
         .join(new_ranks, on="id", how="left")
         .withColumn("pagerank", F.coalesce(F.col("pagerank"), F.lit(1 - damping)))
         .select("id", "pagerank")
-    )
+    ).localCheckpoint()
 
 print(f"PageRank computed ({max_iter} iterations).")
 display(pagerank_df.orderBy(F.desc("pagerank")).limit(5))
@@ -160,7 +161,7 @@ for i in range(max_iter):
             )
         )
         .select("id", "label")
-    )
+    ).localCheckpoint()
 
 # Compute community sizes
 community_sizes = (
@@ -205,8 +206,12 @@ triangles = (
         (F.col("e2.dst") == F.col("e3.src")) & (F.col("e3.dst") == F.col("e1.src"))
     )
     .select(
-        F.least(F.col("e1.src"), F.col("e1.dst"), F.col("e2.dst")).alias("v1"),
-        F.greatest(F.col("e1.src"), F.col("e1.dst"), F.col("e2.dst")).alias("v3"),
+        F.array_sort(F.array(F.col("e1.src"), F.col("e1.dst"), F.col("e2.dst"))).alias("sorted_nodes")
+    )
+    .select(
+        F.col("sorted_nodes").getItem(0).alias("v1"),
+        F.col("sorted_nodes").getItem(1).alias("v2"),
+        F.col("sorted_nodes").getItem(2).alias("v3"),
     )
     .distinct()
 )
@@ -214,10 +219,12 @@ triangles = (
 # Count triangles per vertex
 # Each triangle appears 3 times (once per vertex), so count all occurrences
 triangle_counts_v1 = triangles.groupBy(F.col("v1").alias("id")).agg(F.count("*").alias("count"))
+triangle_counts_v2 = triangles.groupBy(F.col("v2").alias("id")).agg(F.count("*").alias("count"))
 triangle_counts_v3 = triangles.groupBy(F.col("v3").alias("id")).agg(F.count("*").alias("count"))
 
 triangle_df = (
     triangle_counts_v1
+    .union(triangle_counts_v2)
     .union(triangle_counts_v3)
     .groupBy("id")
     .agg(F.sum("count").alias("triangle_count"))
@@ -254,7 +261,7 @@ graph_features.write.mode("overwrite").saveAsTable(f"{catalog}.{schema}.gold_gra
 
 spark.sql(f"""
   COMMENT ON TABLE {catalog}.{schema}.gold_graph_features IS
-  'Graph-derived structural features for each UPI account. Includes PageRank, degree centrality, community membership, triangle count, and in/out ratio. Built from silver_transactions using GraphFrames.'
+  'Graph-derived structural features for each UPI account. Includes PageRank, degree centrality, community membership, triangle count, and in/out ratio. Built from silver_transactions using pure PySpark.'
 """)
 
 row_count = spark.table(f"{catalog}.{schema}.gold_graph_features").count()
