@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KAVACH — Digital Arrest Scam Detection</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- NAV BAR -->
+    <nav class="glass-nav">
+        <div class="nav-brand">
+            <span class="shield-icon">🛡️</span>
+            <h1>KAVACH <span class="badge">LIVE</span></h1>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-item active" data-target="landing">Overview</a>
+            <a href="#" class="nav-item" data-target="monitoring">Monitoring Center</a>
+            <a href="#" class="nav-item" data-target="rag">RAG Intelligence</a>
+            <a href="#" class="nav-item" data-target="metrics">Model Metrics</a>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main id="app-container">
+
+        <!-- SECTION: LANDING PAGE -->
+        <section id="landing" class="view-section active">
+            <div class="hero">
+                <div class="hero-content">
+                    <div class="alert-badge">Critical Alert</div>
+                    <h2 class="hero-title">Defeating Digital Arrest Scams in Real-Time</h2>
+                    <p class="hero-subtitle">Powered by Databricks Medallion Architecture, Graph ML, and GenAI.</p>
+                    <button id="btn-enter-monitor" class="btn btn-primary btn-glow">Enter Monitoring Center</button>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card glass-card">
+                    <div class="stat-icon red-glow">₹</div>
+                    <div class="stat-value">1,935 Cr</div>
+                    <div class="stat-label">Estimated National Loss</div>
+                </div>
+                <div class="stat-card glass-card">
+                    <div class="stat-icon amber-glow">⚠️</div>
+                    <div class="stat-value">1.23L</div>
+                    <div class="stat-label">Reported Cases (2024)</div>
+                </div>
+                <div class="stat-card glass-card ticking-card">
+                    <div class="stat-icon red-pulse">⏰</div>
+                    <div class="stat-value" id="threat-counter">₹22,00,000</div>
+                    <div class="stat-label">Stolen Every Hour</div>
+                </div>
+            </div>
+
+            <div class="databricks-section">
+                <h3>Databricks Services Powering Kavach</h3>
+                <div class="badges-grid">
+                    <div class="db-badge glass-card"><span class="icon">📦</span> Delta Lake (Medallion)</div>
+                    <div class="db-badge glass-card"><span class="icon">⚡</span> Structured Streaming</div>
+                    <div class="db-badge glass-card"><span class="icon">🕸️</span> GraphFrames</div>
+                    <div class="db-badge glass-card"><span class="icon">🧠</span> MLlib (GBT Classifier)</div>
+                    <div class="db-badge glass-card"><span class="icon">📊</span> MLflow Tracking</div>
+                    <div class="db-badge glass-card"><span class="icon">🚀</span> Model Serving</div>
+                    <div class="db-badge glass-card"><span class="icon">🔍</span> Vector Search</div>
+                    <div class="db-badge glass-card"><span class="icon">🤖</span> MosaicML / DBRX</div>
+                    <div class="db-badge glass-card"><span class="icon">📈</span> Databricks SQL</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: MONITORING CENTER -->
+        <section id="monitoring" class="view-section">
+            <div class="monitor-grid">
+                <!-- Left Panel: Feed -->
+                <div class="feed-panel glass-card">
+                    <div class="panel-header">
+                        <h3>Live Transaction Stream</h3>
+                        <button id="btn-simulate" class="btn btn-sm btn-outline">Simulate Scam</button>
+                    </div>
+                    <div class="feed-headers">
+                        <span>Time</span>
+                        <span>Connection</span>
+                        <span>Amount</span>
+                    </div>
+                    <div class="feed-list" id="transaction-feed">
+                        <!-- Feed items added via JS -->
+                        <div class="feed-empty">Waiting for transactions...</div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: Graph -->
+                <div class="graph-panel glass-card">
+                    <div class="panel-header">
+                        <h3>Network Intelligence (Graph ML)</h3>
+                        <div class="legend">
+                            <span class="legend-item"><span class="dot victim"></span> Victim</span>
+                            <span class="legend-item"><span class="dot mule"></span> Mule</span>
+                            <span class="legend-item"><span class="dot hub"></span> Hub</span>
+                            <span class="legend-item"><span class="dot normal"></span> Normal</span>
+                        </div>
+                    </div>
+                    <div id="graph-canvas" class="canvas-container">
+                        <!-- D3 SVG goes here -->
+                    </div>
+                </div>
+
+                <!-- Bottom Panel: Alerts -->
+                <div class="alert-panel glass-card full-width">
+                    <div class="panel-header">
+                        <h3>Real-time Scam Episoide Alerts</h3>
+                    </div>
+                    <div class="alert-list" id="alert-feed">
+                        <!-- Alerts added via JS -->
+                        <div class="alert-item empty-alert">No active digital arrest episodes detected. System scanning...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: RAG INTELLIGENCE -->
+        <section id="rag" class="view-section">
+            <div class="rag-container glass-card">
+                <div class="rag-header">
+                    <h2>Complaint Intelligence (Vector Search)</h2>
+                    <p>Query past cases via semantic search to find similar modus operandi and entities.</p>
+                </div>
+                
+                <div class="search-bar-container">
+                    <input type="text" id="rag-search-input" placeholder="e.g., 'CBI officer demanding money via Skype video call...'" class="glass-input">
+                    <button id="btn-rag-search" class="btn btn-primary">Search DB</button>
+                </div>
+
+                <div class="rag-results" id="rag-results-container">
+                    <div class="placeholder-text text-muted">Enter a narrative to search the vector database...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: MODEL METRICS -->
+        <section id="metrics" class="view-section">
+            <div class="metrics-grid">
+                <div class="glass-card full-width metrics-header">
+                    <h2>MLflow Model Performance (XGBoost + Graph)</h2>
+                </div>
+                
+                <div class="metric-card glass-card">
+                    <div class="metric-title">Area Under ROC (AUC)</div>
+                    <div class="metric-big value-green">0.968</div>
+                    <div class="progress-bar"><div class="fill green" style="width: 96.8%"></div></div>
+                </div>
+                <div class="metric-card glass-card">
+                    <div class="metric-title">Precision (Scam)</div>
+                    <div class="metric-big value-amber">0.924</div>
+                    <div class="progress-bar"><div class="fill amber" style="width: 92.4%"></div></div>
+                </div>
+                <div class="metric-card glass-card">
+                    <div class="metric-title">Recall (Scam)</div>
+                    <div class="metric-big value-green">0.941</div>
+                    <div class="progress-bar"><div class="fill green" style="width: 94.1%"></div></div>
+                </div>
+                <div class="metric-card glass-card">
+                    <div class="metric-title">F1 Score</div>
+                    <div class="metric-big value-green">0.932</div>
+                    <div class="progress-bar"><div class="fill green" style="width: 93.2%"></div></div>
+                </div>
+
+                <div class="glass-card impact-card full-width">
+                    <h3>Projected Business Impact</h3>
+                    <ul class="impact-list">
+                        <li><span class="check">✓</span> <strong>₹450 Cr</strong> potential annual savings for participating banks.</li>
+                        <li><span class="check">✓</span> <strong>< 200ms</strong> p99 latency via Databricks Model Serving.</li>
+                        <li><span class="check">✓</span> <strong>85%</strong> reduction in manual reviewing time through GenAI complaint summarization.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Scripts -->
+    <script src="js/app.js"></script>
+    <script src="js/feed.js"></script>
+    <script src="js/graph.js"></script>
+    <script src="js/rag.js"></script>
+</body>
+</html>
